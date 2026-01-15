@@ -165,6 +165,7 @@ export const registerUser = async (req, res) => {
     console.error(error);
     res.status(500).json({ msg: "Registration failed", error: error.message });
   }
+  
 };
 
 export const logInUser = async (req, res) => {
