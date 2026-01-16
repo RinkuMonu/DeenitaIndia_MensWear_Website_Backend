@@ -188,6 +188,7 @@ export const createMultipleProducts = async (req, res) => {
 };
 
 export const getProducts = async (req, res) => {
+  console.log("req = ",req.query);
   try {
     const {
       referenceWebsite,
@@ -226,7 +227,7 @@ export const getProducts = async (req, res) => {
         as: "category",
       },
     });
-
+console.log("pipeline = ",pipeline);
     // Flatten the joined category array
     pipeline.push({ $unwind: "$category" });
 
