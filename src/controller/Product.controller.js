@@ -59,8 +59,6 @@ export const searchProducts = async (req, res) => {
 export const createProduct = async (req, res) => {
   try {
     console.log("Incoming request body:", req.body);
-    console.log("Uploaded files:", req.files);
-    console.log("User info:", req.user);
 
     const {
       referenceWebsite,
@@ -73,57 +71,37 @@ export const createProduct = async (req, res) => {
       size,
       material,
       stock,
+      // 👇 Naye fields destructure karein
+      isPopular,
+      isTrending,
+      isFeatured,
+      isNewArrival,
+      tags
     } = req.body;
 
     const imageArray =
       req.files?.map((file) => `/uploads/${file.filename}`) || [];
 
+    // Size Handling
     let parsedSizes;
     if (typeof size === "string") {
       try {
         parsedSizes = JSON.parse(size);
       } catch (err) {
-        return res
-          .status(400)
-          .json({ message: "Invalid size format. Must be valid JSON array." });
+        return res.status(400).json({ message: "Invalid size format." });
       }
     } else {
       parsedSizes = size;
     }
 
-    // Validation
-    // if (!Array.isArray(parsedSizes) || parsedSizes.length === 0) {
-    //   return res
-    //     .status(400)
-    //     .json({ message: "At least one size with price is required." });
-    // }
-
-    for (const item of parsedSizes) {
-      if (
-        !item.sizes ||
-        typeof item.sizes !== "string" ||
-        item.price == null ||
-        item.price < 0
-      ) {
-        return res.status(400).json({
-          message:
-            "Each size entry must have a valid 'sizes' string and a non-negative 'price'.",
-        });
-      }
-    }
-
-    console.log("Processed images:", imageArray);
-    console.log("Product size:", parsedSizes);
-    console.log("Price:", price, "Actual Price:", actualPrice);
-
-    if (actualPrice < 0 || actualPrice > price) {
-      console.warn("Invalid actualPrice detected");
+    // Actual Price Validation
+    if (Number(actualPrice) < 0 || Number(actualPrice) > Number(price)) {
       return res.status(400).json({
-        message:
-          "Invalid actualPrice. It must be a positive value and less than or equal to price.",
+        message: "Invalid actualPrice. It must be positive and <= price.",
       });
     }
 
+    // Naya Product Object banayein
     const product = new Product({
       referenceWebsite,
       productName,
@@ -137,20 +115,19 @@ export const createProduct = async (req, res) => {
       stock: Number(stock),
       discount: Number(discount),
       addedBy: req.user?.id?.toString(),
+      // 👇 In fields ko add karein (FormData string ko boolean mein convert karke)
+      isPopular: isPopular === 'true' || isPopular === true,
+      isTrending: isTrending === 'true' || isTrending === true,
+      isFeatured: isFeatured === 'true' || isFeatured === true,
+      isNewArrival: isNewArrival === 'true' || isNewArrival === true,
+      tags: tags ? (typeof tags === "string" ? JSON.parse(tags) : tags) : []
     });
 
-    console.log("Saving product to database:", product);
-
     await product.save();
-
-    console.log("Product saved successfully");
-
     res.status(200).json({ message: "Product added successfully", product });
   } catch (error) {
     console.error("Error in createProduct:", error);
-    res
-      .status(500)
-      .json({ message: "Failed to add product", error: error.message });
+    res.status(500).json({ message: "Failed to add product", error: error.message });
   }
 };
 
@@ -188,7 +165,6 @@ export const createMultipleProducts = async (req, res) => {
 };
 
 export const getProducts = async (req, res) => {
-  console.log("req = ",req.query);
   try {
     const {
       referenceWebsite,
@@ -198,11 +174,15 @@ export const getProducts = async (req, res) => {
       sortBy = "createdAt",
       sortOrder = "desc",
       page = 1,
-      search,
       limit = 100,
-      newArrival, // ✅ added
+      search,
       material,
       stock,
+      // Naye filters jo aapne maange hain
+      isPopular,
+      isTrending,
+      isFeatured,
+      isNewArrival,
     } = req.query;
 
     if (!referenceWebsite) {
@@ -211,14 +191,14 @@ export const getProducts = async (req, res) => {
 
     const pipeline = [];
 
-    // Match the website
+    // 1. Match the website
     pipeline.push({
       $match: {
         referenceWebsite: new mongoose.Types.ObjectId(referenceWebsite),
       },
     });
 
-    // Lookup to join category info
+    // 2. Lookup & Unwind Category
     pipeline.push({
       $lookup: {
         from: "productcategories",
@@ -227,10 +207,9 @@ export const getProducts = async (req, res) => {
         as: "category",
       },
     });
-console.log("pipeline = ",pipeline);
-    // Flatten the joined category array
     pipeline.push({ $unwind: "$category" });
 
+    // 3. Lookup Coupon (Optional details)
     pipeline.push({
       $lookup: {
         from: "coupons",
@@ -239,7 +218,6 @@ console.log("pipeline = ",pipeline);
         as: "couponDetails",
       },
     });
-
     pipeline.push({
       $unwind: {
         path: "$couponDetails",
@@ -247,16 +225,18 @@ console.log("pipeline = ",pipeline);
       },
     });
 
-    // Match by category name (case-insensitive)
+    // --- FILTERS START ---
+
+    // Search Filter
     if (search) {
       pipeline.push({
         $match: {
-          productName: {
-            $regex: new RegExp(search, "i"), // case-insensitive exact match
-          },
+          productName: { $regex: new RegExp(search, "i") },
         },
       });
     }
+
+    // Material Filter
     if (material) {
       pipeline.push({
         $match: {
@@ -264,43 +244,30 @@ console.log("pipeline = ",pipeline);
         },
       });
     }
-    // ✅ Filter by stock (Number)
+
+    // Stock Filter
     if (stock) {
       if (stock === "in") {
-        pipeline.push({
-          $match: { stock: { $gte: 5 } }, // stock ≥ 5 → In Stock
-        });
+        pipeline.push({ $match: { stock: { $gte: 5 } } });
       } else if (stock === "out") {
-        pipeline.push({
-          $match: { stock: { $lt: 5 } }, // stock < 5 → Out of Stock
-        });
-      } else {
-        pipeline.push({
-          $match: { stock: parseInt(stock) }, // Exact match e.g. stock=10
-        });
+        pipeline.push({ $match: { stock: { $lt: 5 } } });
       }
     }
 
-    // Match by category name (case-insensitive)
+    // Category Filter (ID or Name)
     if (category) {
       if (mongoose.Types.ObjectId.isValid(category)) {
         pipeline.push({
-          $match: {
-            "category._id": new mongoose.Types.ObjectId(category),
-          },
+          $match: { "category._id": new mongoose.Types.ObjectId(category) },
         });
       } else {
         pipeline.push({
-          $match: {
-            "category.name": {
-              $regex: new RegExp(category, "i"), // case-insensitive exact match
-            },
-          },
+          $match: { "category.name": { $regex: new RegExp(category, "i") } },
         });
       }
     }
 
-    // Filter by price range
+    // Price Range Filter
     pipeline.push({
       $match: {
         price: {
@@ -310,15 +277,23 @@ console.log("pipeline = ",pipeline);
       },
     });
 
-    // ✅ Filter by new arrivals (last 15 days)
-    if (newArrival === "true") {
-      const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
-      pipeline.push({
-        $match: {
-          createdAt: { $gte: fifteenDaysAgo },
-        },
-      });
+    // ✅ SPECIAL FILTERS (Popular, Trending, Featured, New Arrival)
+    if (isPopular === "true") {
+      pipeline.push({ $match: { isPopular: true } });
     }
+    if (isTrending === "true") {
+      pipeline.push({ $match: { isTrending: true } });
+    }
+    if (isFeatured === "true") {
+      pipeline.push({ $match: { isFeatured: true } });
+    }
+    
+    // Yahan agar Model mein 'isNewArrival' boolean field hai toh wo check hoga
+    if (isNewArrival === "true") {
+      pipeline.push({ $match: { isNewArrival: true } });
+    }
+
+    // --- FILTERS END ---
 
     // Sorting
     pipeline.push({
@@ -329,22 +304,17 @@ console.log("pipeline = ",pipeline);
 
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
-    pipeline.push({ $skip: skip });
-    pipeline.push({ $limit: parseInt(limit) });
-    console.log(pipeline);
+    const limitNum = parseInt(limit);
 
-    // Execute aggregation for products
-    const products = await Product.aggregate(pipeline);
+    // Products fetch logic
+    const products = await Product.aggregate([...pipeline, { $skip: skip }, { $limit: limitNum }]);
 
-    // Count total documents (excluding pagination stages)
-    const countPipeline = pipeline.filter(
-      (stage) => !stage.$skip && !stage.$limit && !stage.$sort
-    );
-    countPipeline.push({ $count: "total" });
-
+    // Total Count logic
+    const countPipeline = [...pipeline, { $count: "total" }];
     const countResult = await Product.aggregate(countPipeline);
+    
     const totalDocuments = countResult[0]?.total || 0;
-    const totalPages = Math.ceil(totalDocuments / limit);
+    const totalPages = Math.ceil(totalDocuments / limitNum);
 
     return res.status(200).json({
       message: "Products retrieved successfully",
@@ -352,7 +322,7 @@ console.log("pipeline = ",pipeline);
       pagination: {
         totalDocuments,
         currentPage: parseInt(page),
-        pageSize: parseInt(limit),
+        pageSize: limitNum,
         totalPages,
       },
     });
@@ -517,6 +487,7 @@ export const getProductDetail = async (req, res) => {
 };
 
 export const updateProduct = async (req, res) => {
+  console.log("Update Product Req Body:", req.body);
   try {
     const {
       productName,
@@ -528,6 +499,12 @@ export const updateProduct = async (req, res) => {
       size,
       material,
       stock,
+      // --- NEW FIELDS ADDED HERE ---
+      isPopular,
+      isTrending,
+      isFeatured,
+      isNewArrival,
+      tags
     } = req.body;
 
     const existingProduct = await Product.findById(req.params.id);
@@ -540,59 +517,50 @@ export const updateProduct = async (req, res) => {
         ? req.files.map((file) => `/uploads/${file.filename}`)
         : existingProduct.images;
 
+    // Size parsing logic (Same as before)
     let parsedSizes;
     if (typeof size === "string") {
       try {
         parsedSizes = JSON.parse(size);
       } catch (err) {
-        return res
-          .status(400)
-          .json({ message: "Invalid size format. Must be valid JSON array." });
+        return res.status(400).json({ message: "Invalid size format." });
       }
     } else {
       parsedSizes = size;
     }
 
-    if (!Array.isArray(parsedSizes) || parsedSizes.length === 0) {
-      return res
-        .status(400)
-        .json({ message: "At least one size with price is required." });
+    // Validation for actualPrice
+    if (Number(actualPrice) < 0) {
+      return res.status(400).json({ message: "Invalid actualPrice." });
     }
 
-    for (const item of parsedSizes) {
-      if (
-        !item.sizes ||
-        typeof item.sizes !== "string" ||
-        item.price == null ||
-        item.price < 0
-      ) {
-        return res.status(400).json({
-          message:
-            "Each size entry must have a valid 'sizes' string and a non-negative 'price'.",
-        });
-      }
+    // --- LOGIC TO HANDLE BOOLEANS & STRINGS FROM FORMDATA ---
+    const updateData = {
+      productName,
+      images: imageArray,
+      price: Number(price),
+      actualPrice: Number(actualPrice) || 0,
+      category,
+      description,
+      size: parsedSizes,
+      discount: Number(discount),
+      material,
+      stock: Number(stock),
+      // Boolean conversion: string "true" becomes true
+      isPopular: isPopular === 'true' || isPopular === true,
+      isTrending: isTrending === 'true' || isTrending === true,
+      isFeatured: isFeatured === 'true' || isFeatured === true,
+      isNewArrival: isNewArrival === 'true' || isNewArrival === true,
+    };
+
+    // Tags array handling
+    if (tags) {
+      updateData.tags = typeof tags === "string" ? JSON.parse(tags) : tags;
     }
 
-    if (actualPrice < 0 || actualPrice > price) {
-      return res.status(400).json({
-        message:
-          "Invalid actualPrice. It must be a positive value and less than or equal to price.",
-      });
-    }
     const updatedProduct = await Product.findByIdAndUpdate(
       req.params.id,
-      {
-        productName,
-        images: imageArray,
-        price,
-        actualPrice: actualPrice || 0,
-        category,
-        description,
-        size: parsedSizes,
-        discount,
-        material,
-        stock: Number(stock),
-      },
+      updateData, // Use the prepared object
       { new: true }
     );
 
@@ -600,13 +568,10 @@ export const updateProduct = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res
-      .status(200)
-      .json({ message: "Product updated successfully", updatedProduct });
+    res.status(200).json({ message: "Product updated successfully", updatedProduct });
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to update product", error: error.message });
+    console.error("Update Error:", error);
+    res.status(500).json({ message: "Failed to update product", error: error.message });
   }
 };
 
