@@ -12,6 +12,38 @@ const productSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
+    isPopular: {
+      type: Boolean,
+      default: false,
+    },
+    isTrending: {
+      type: Boolean,
+      default: false,
+    },
+    isFeatured: {
+      type: Boolean,
+      default: false,
+    },
+    isNewArrival: {
+      type: Boolean,
+      default: true,
+    },
+    ratings: {
+      type: Number,
+      default: 0,
+    },
+    numOfReviews: {
+      type: Number,
+      default: 0,
+    },
+    tags: {
+      type: [String], 
+    },
+    status: {
+      type: String,
+      enum: ["active", "inactive", "draft"],
+      default: "active",
+    },
     description: {
       type: String,
       required: true,
