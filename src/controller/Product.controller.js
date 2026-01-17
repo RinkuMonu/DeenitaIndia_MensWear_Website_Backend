@@ -8,29 +8,46 @@ import mongoose from "mongoose";
 // http://localhost:5008/api/product/search?query=saree above 400&page=1&limit=20
 export const searchProducts = async (req, res) => {
   try {
-    let { query, referenceWebsite, page = 1, limit = 20 } = req.query;
+    // 1. Saare params ko destructure karein
+    let { 
+      query, 
+      referenceWebsite, 
+      page = 1, 
+      limit = 20, 
+      minPrice, 
+      maxPrice, 
+      isPopular, 
+      isTrending, 
+      isFeatured, 
+      isNewArrival,
+      sortBy,
+      sortOrder 
+    } = req.query;
+
     if (!referenceWebsite) {
       return res.status(400).json({ message: "Missing referenceWebsite" });
     }
+
     const filter = {};
     filter.referenceWebsite = new mongoose.Types.ObjectId(referenceWebsite);
+
+    // 2. Special Collection Filters (Popular, Trending, etc.)
+    // Hum sirf tabhi filter lagayenge jab frontend se "true" string aaye
+    if (isPopular === "true") filter.isPopular = true;
+    if (isTrending === "true") filter.isTrending = true;
+    if (isFeatured === "true") filter.isFeatured = true;
+    if (isNewArrival === "true") filter.isNewArrival = true;
+
+    // 3. Price Range Filter
     let priceFilter = {};
-    const lowerQuery = query?.toLowerCase() || "";
-
-    if (lowerQuery.includes("under")) {
-      const parts = lowerQuery.split("under");
-      query = parts[0].trim();
-      priceFilter.$lte = Number(parts[1].trim());
-    } else if (lowerQuery.includes("above")) {
-      const parts = lowerQuery.split("above");
-      query = parts[0].trim();
-      priceFilter.$gte = Number(parts[1].trim());
-    }
-
+    if (minPrice) priceFilter.$gte = Number(minPrice);
+    if (maxPrice) priceFilter.$lte = Number(maxPrice);
+    
     if (Object.keys(priceFilter).length > 0) {
-      filter.price = priceFilter;
+      filter.actualPrice = priceFilter; // Dhyan dein: frontend actualPrice bhej raha hai ya price
     }
 
+    // 4. Text Search Logic
     if (query) {
       filter.$or = [
         { productName: { $regex: query, $options: "i" } },
@@ -38,10 +55,22 @@ export const searchProducts = async (req, res) => {
       ];
     }
 
+    // 5. Sorting Logic
+    const sort = {};
+    if (sortBy) {
+      sort[sortBy] = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      sort.createdAt = -1; // Default sorting
+    }
+
     limit = parseInt(limit);
     const skip = (parseInt(page) - 1) * limit;
 
-    const products = await Product.find(filter).skip(skip).limit(limit);
+    // 6. Execution
+    const products = await Product.find(filter)
+      .sort(sort) // Sort apply karna zaroori hai
+      .skip(skip)
+      .limit(limit);
 
     const totalResult = await Product.countDocuments(filter);
 
