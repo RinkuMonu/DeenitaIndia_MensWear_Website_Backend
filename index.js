@@ -50,6 +50,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(
   cors({
     origin: [
+      "https://api.deenitaindia.com",
       "https://deenitaindia.com",
       "https://jajamblockprints.com",
       "http://localhost:5174",
