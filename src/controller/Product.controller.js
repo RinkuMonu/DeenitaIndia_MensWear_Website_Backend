@@ -92,6 +92,8 @@ export const createProduct = async (req, res) => {
     const {
       referenceWebsite,
       productName,
+      brand,       // 👈 Add this
+      color,       // 👈 Add this (global colors array)
       discount,
       price,
       actualPrice,
@@ -100,7 +102,6 @@ export const createProduct = async (req, res) => {
       size,
       material,
       stock,
-      // 👇 Naye fields destructure karein
       isPopular,
       isTrending,
       isFeatured,
@@ -111,7 +112,7 @@ export const createProduct = async (req, res) => {
     const imageArray =
       req.files?.map((file) => `/uploads/${file.filename}`) || [];
 
-    // Size Handling
+    // 1. Size Handling (Nested colors will be inside this)
     let parsedSizes;
     if (typeof size === "string") {
       try {
@@ -123,28 +124,41 @@ export const createProduct = async (req, res) => {
       parsedSizes = size;
     }
 
-    // Actual Price Validation
+    // 2. Global Color Handling (Array fix)
+    let parsedColors;
+    if (typeof color === "string") {
+      try {
+        parsedColors = JSON.parse(color);
+      } catch (err) {
+        parsedColors = [color]; // If single string
+      }
+    } else {
+      parsedColors = color || [];
+    }
+
+    // 3. Actual Price Validation
     if (Number(actualPrice) < 0 || Number(actualPrice) > Number(price)) {
       return res.status(400).json({
         message: "Invalid actualPrice. It must be positive and <= price.",
       });
     }
 
-    // Naya Product Object banayein
+    // 4. Create Product Object
     const product = new Product({
       referenceWebsite,
       productName,
+      brand,                // 👈 Pass brand ID
+      color: parsedColors,  // 👈 Pass global colors array
       images: imageArray,
       price: Number(price),
       actualPrice: Number(actualPrice),
       category,
       description,
-      size: parsedSizes,
+      size: parsedSizes,    // Contains nested colors per size
       material,
       stock: Number(stock),
       discount: Number(discount),
-      addedBy: req.user?.id?.toString(),
-      // 👇 In fields ko add karein (FormData string ko boolean mein convert karke)
+      addedBy: req.user?.id || req.body.addedBy, // Fallback if user object missing
       isPopular: isPopular === 'true' || isPopular === true,
       isTrending: isTrending === 'true' || isTrending === true,
       isFeatured: isFeatured === 'true' || isFeatured === true,
@@ -198,16 +212,16 @@ export const getProducts = async (req, res) => {
     const {
       referenceWebsite,
       category,
+      brand,
       minPrice = 0,
       maxPrice = 1000000,
       sortBy = "createdAt",
       sortOrder = "desc",
       page = 1,
-      limit = 100,
+      limit = 10,
       search,
       material,
       stock,
-      // Naye filters jo aapne maange hain
       isPopular,
       isTrending,
       isFeatured,
@@ -218,134 +232,105 @@ export const getProducts = async (req, res) => {
       return res.status(400).json({ message: "Missing referenceWebsite" });
     }
 
-    const pipeline = [];
+    // --- 1. INITIAL FILTERS (Match Stage) ---
+    const matchQuery = {
+      referenceWebsite: new mongoose.Types.ObjectId(referenceWebsite),
+    };
 
-    // 1. Match the website
-    pipeline.push({
-      $match: {
-        referenceWebsite: new mongoose.Types.ObjectId(referenceWebsite),
-      },
-    });
-
-    // 2. Lookup & Unwind Category
-    pipeline.push({
-      $lookup: {
-        from: "productcategories",
-        localField: "category",
-        foreignField: "_id",
-        as: "category",
-      },
-    });
-    pipeline.push({ $unwind: "$category" });
-
-    // 3. Lookup Coupon (Optional details)
-    pipeline.push({
-      $lookup: {
-        from: "coupons",
-        localField: "coupon",
-        foreignField: "_id",
-        as: "couponDetails",
-      },
-    });
-    pipeline.push({
-      $unwind: {
-        path: "$couponDetails",
-        preserveNullAndEmptyArrays: true,
-      },
-    });
-
-    // --- FILTERS START ---
+    // Price Filter
+    matchQuery.price = { $gte: parseFloat(minPrice), $lte: parseFloat(maxPrice) };
 
     // Search Filter
     if (search) {
-      pipeline.push({
-        $match: {
-          productName: { $regex: new RegExp(search, "i") },
-        },
-      });
+      matchQuery.productName = { $regex: new RegExp(search, "i") };
     }
 
-    // Material Filter
-    if (material) {
-      pipeline.push({
-        $match: {
-          material: { $regex: new RegExp(material, "i") },
-        },
-      });
+    // Brand ID Filter
+    if (brand && mongoose.Types.ObjectId.isValid(brand)) {
+      matchQuery.brand = new mongoose.Types.ObjectId(brand);
     }
 
-    // Stock Filter
+    // Boolean Type Casting (FormData se string aati hai)
+    if (isPopular === "true") matchQuery.isPopular = true;
+    if (isTrending === "true") matchQuery.isTrending = true;
+    if (isFeatured === "true") matchQuery.isFeatured = true;
+    if (isNewArrival === "true") matchQuery.isNewArrival = true;
+
+    // Material & Stock
+    if (material) matchQuery.material = { $regex: new RegExp(material, "i") };
     if (stock) {
-      if (stock === "in") {
-        pipeline.push({ $match: { stock: { $gte: 5 } } });
-      } else if (stock === "out") {
-        pipeline.push({ $match: { stock: { $lt: 5 } } });
-      }
+      matchQuery.stock = stock === "in" ? { $gte: 1 } : { $lte: 0 };
     }
 
-    // Category Filter (ID or Name)
-    if (category) {
-      if (mongoose.Types.ObjectId.isValid(category)) {
-        pipeline.push({
-          $match: { "category._id": new mongoose.Types.ObjectId(category) },
-        });
-      } else {
-        pipeline.push({
-          $match: { "category.name": { $regex: new RegExp(category, "i") } },
-        });
-      }
-    }
+    const pipeline = [{ $match: matchQuery }];
 
-    // Price Range Filter
-    pipeline.push({
-      $match: {
-        price: {
-          $gte: parseFloat(minPrice),
-          $lte: parseFloat(maxPrice),
+    // --- 2. JOINS (Lookups) ---
+
+    // Brand Lookup - ID ko Object se replace karne ke liye
+    pipeline.push(
+      {
+        $lookup: {
+          from: "brands", // ⚠️ Check karein DB mein collection name 'brands' hi hai na
+          localField: "brand",
+          foreignField: "_id",
+          as: "brand", 
         },
       },
-    });
+      { $unwind: { path: "$brand", preserveNullAndEmptyArrays: true } }
+    );
 
-    // ✅ SPECIAL FILTERS (Popular, Trending, Featured, New Arrival)
-    if (isPopular === "true") {
-      pipeline.push({ $match: { isPopular: true } });
-    }
-    if (isTrending === "true") {
-      pipeline.push({ $match: { isTrending: true } });
-    }
-    if (isFeatured === "true") {
-      pipeline.push({ $match: { isFeatured: true } });
-    }
-    
-    // Yahan agar Model mein 'isNewArrival' boolean field hai toh wo check hoga
-    if (isNewArrival === "true") {
-      pipeline.push({ $match: { isNewArrival: true } });
-    }
-
-    // --- FILTERS END ---
-
-    // Sorting
-    pipeline.push({
-      $sort: {
-        [sortBy]: sortOrder === "asc" ? 1 : -1,
+    // Category Lookup
+    pipeline.push(
+      {
+        $lookup: {
+          from: "productcategories", // ⚠️ Check karein DB mein collection name 'productcategories' hai na
+          localField: "category",
+          foreignField: "_id",
+          as: "category",
+        },
       },
-    });
+      { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } }
+    );
 
-    // Pagination
+    // Coupon Lookup (Optional)
+    pipeline.push(
+      {
+        $lookup: {
+          from: "coupons",
+          localField: "coupon",
+          foreignField: "_id",
+          as: "coupon",
+        },
+      },
+      { $unwind: { path: "$coupon", preserveNullAndEmptyArrays: true } }
+    );
+
+    // --- 3. CATEGORY NAME FILTER (Agar ID nahi, naam bheja ho) ---
+    if (category && !mongoose.Types.ObjectId.isValid(category)) {
+      pipeline.push({
+        $match: { "category.name": { $regex: new RegExp(category, "i") } }
+      });
+    }
+
+    // --- 4. EXECUTION (Pagination & Sorting) ---
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    // Products fetch logic
-    const products = await Product.aggregate([...pipeline, { $skip: skip }, { $limit: limitNum }]);
+    const [products, countResult] = await Promise.all([
+      Product.aggregate([
+        ...pipeline,
+        { $sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 } },
+        { $skip: skip },
+        { $limit: limitNum },
+      ]),
+      Product.aggregate([...pipeline, { $count: "total" }]),
+    ]);
 
-    // Total Count logic
-    const countPipeline = [...pipeline, { $count: "total" }];
-    const countResult = await Product.aggregate(countPipeline);
-    
     const totalDocuments = countResult[0]?.total || 0;
     const totalPages = Math.ceil(totalDocuments / limitNum);
 
     return res.status(200).json({
+      success: true,
       message: "Products retrieved successfully",
       products,
       pagination: {
@@ -358,6 +343,7 @@ export const getProducts = async (req, res) => {
   } catch (error) {
     console.error("Error fetching products:", error);
     return res.status(500).json({
+      success: false,
       message: "Failed to retrieve products",
       error: error.message,
     });
@@ -499,19 +485,25 @@ export const getProducts = async (req, res) => {
 
 export const getProductDetail = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id);
+    const product = await Product.findById(req.params.id)
+      .populate("brand", "name logo") // Sirf name aur logo chahiye brand se
+      .populate("category", "name")   // Sirf name chahiye category se
+      .populate("referenceWebsite", "name url");
+
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
     }
-    res
-      .status(200)
-      .json({ message: "Product retrieved successfully", product });
-  } catch (error) {
-    console.log(error);
 
-    res
-      .status(500)
-      .json({ message: "Failed to retrieve product", error: error.message });
+    res.status(200).json({ 
+      message: "Product retrieved successfully", 
+      product 
+    });
+  } catch (error) {
+    console.error("Error in getProductDetail:", error);
+    res.status(500).json({ 
+      message: "Failed to retrieve product", 
+      error: error.message 
+    });
   }
 };
 

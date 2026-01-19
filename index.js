@@ -10,6 +10,8 @@ import path from "path";
 import orderRoutes from "./src/routes/order.routes.js";
 import authRoutes from "./src/routes/auth.routes.js";
 import productRoutes from "./src/routes/product.routes.js";
+import brandRoutes from "./src/routes/brand.routes.js";
+
 import websiteRoutes from "./src/routes/website.routes.js";
 import cartRoutes from "./src/routes/cart.routes.js";
 import wishlistRoutes from "./src/routes/wishlist.routes.js";
@@ -50,6 +52,7 @@ app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use(
   cors({
     origin: [
+      "https://admin.deenitaindia.com",
       "https://api.deenitaindia.com",
       "https://deenitaindia.com",
       "https://jajamblockprints.com",
@@ -79,6 +82,8 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/wishlist", wishlistRoutes);
 app.use("/api/categories", catergoriesRoutes);
 app.use("/api/product", productRoutes);
+app.use("/api/brands", brandRoutes);
+
 app.use("/api/order", orderRoutes);
 app.use("/api/policy", policyRoutes);
 app.use("/api/banners", bannerRoutes);
