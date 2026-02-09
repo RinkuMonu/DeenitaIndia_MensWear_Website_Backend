@@ -26,6 +26,20 @@ const userSchema = new mongoose.Schema({
   address: {
     type: String,
   },
+
+  otp: {
+  type: String,
+  default: null,
+},
+otpExpiresAt: {
+  type: Date,
+  default: null,
+},
+mobileVerified: {
+  type: Boolean,
+  default: false,
+},
+
 password: {
   type: String,
   required: function () {

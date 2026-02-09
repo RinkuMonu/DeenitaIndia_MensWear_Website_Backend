@@ -1,5 +1,5 @@
 import express from "express";
-import { registerUser, logInUser, updateUserRole, editProfile, logoutUser, adminLogin, getAllUsers, getUserDetails, requestPasswordReset, resetPassword, googleSignIn  } from "../controller/auth.controller.js";
+import { registerUser, logInUser, updateUserRole, editProfile, logoutUser, adminLogin, getAllUsers, getUserDetails, requestPasswordReset, resetPassword, googleSignIn, sendOtpLogin, verifyOtpAndLogin  } from "../controller/auth.controller.js";
 import { isAdmin } from "../middleware/isAdmin.js";
 import { verifyToken } from "../middleware/verifyToken.js";
 // import { requestPasswordReset, resetPassword } from "../controller/Product.controller.js";
@@ -11,6 +11,11 @@ authRoutes.use(express.json());
 
 authRoutes.post("/signUp", registerUser);
 authRoutes.post("/logIn", logInUser);
+
+
+authRoutes.post("/send-otp-login", sendOtpLogin);
+authRoutes.post("/verify-otp-login", verifyOtpAndLogin);
+
 authRoutes.post("/admin_login", adminLogin)
 authRoutes.get("/userInfo", verifyToken, getUserDetails)
 authRoutes.get("/logOut", logoutUser);
