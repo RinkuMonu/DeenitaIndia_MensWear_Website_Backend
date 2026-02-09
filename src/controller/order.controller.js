@@ -243,20 +243,56 @@ export const getOrdersByUser = async (req, res) => {
     if (!userId) {
       return res.status(400).json({ message: "User ID is required" });
     }
+
+    // 1. Database se orders nikalna
     const orders = await Order.find({ customer: userId })
       .populate("products.product", "productName price images")
-      .populate("customer", "firstName lastName email mobile");
+      .populate("customer", "firstName lastName email mobile")
+      .sort({ createdAt: -1 }); // Naye orders pehle dikhenge
+
     if (!orders || orders.length === 0) {
-      return res.status(404).json({ message: "No orders found for this user" });
+      return res.status(404).json({ 
+        message: "No orders found for this user",
+        orders: [],
+        uniqueAddresses: [] 
+      });
     }
-    res.status(200).json({ message: "Orders retrieved successfully", orders });
+
+    // 2. UNIQUE ADDRESSES LOGIC
+    const uniqueAddressesMap = new Map();
+
+    orders.forEach(order => {
+      // YAHAN CHECK KAREIN: Agar aapke schema mein 'address' ki jagah 
+      // 'shippingAddress' ya kuch aur hai, toh niche 'order.address' ko change karein.
+      if (order.shippingAddress) {
+        // Address object ko string banate hain comparison ke liye
+        const addressKey = JSON.stringify(order.shippingAddress).toLowerCase().trim();
+        
+        if (!uniqueAddressesMap.has(addressKey)) {
+          uniqueAddressesMap.set(addressKey, order.shippingAddress);
+        }
+      }
+    });
+
+    const uniqueAddresses = Array.from(uniqueAddressesMap.values());
+
+    // 3. Final Response
+    // Dhyan dein: uniqueAddresses ko response mein bhej rahe hain
+    return res.status(200).json({ 
+      message: "Orders retrieved successfully", 
+      count: orders.length,
+      orders, 
+      uniqueAddresses 
+    });
+
   } catch (error) {
-    res
-      .status(500)
-      .json({ message: "Failed to fetch orders", error: error.message });
+    console.error("Backend Error:", error);
+    return res.status(500).json({ 
+      message: "Failed to fetch orders", 
+      error: error.message 
+    });
   }
 };
-
 // Get a specific order by ID
 export const getOrder = async (req, res) => {
   try {
