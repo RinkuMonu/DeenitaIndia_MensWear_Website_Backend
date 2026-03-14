@@ -9,19 +9,19 @@ import mongoose from "mongoose";
 export const searchProducts = async (req, res) => {
   try {
     // 1. Saare params ko destructure karein
-    let { 
-      query, 
-      referenceWebsite, 
-      page = 1, 
-      limit = 20, 
-      minPrice, 
-      maxPrice, 
-      isPopular, 
-      isTrending, 
-      isFeatured, 
+    let {
+      query,
+      referenceWebsite,
+      page = 1,
+      limit = 20,
+      minPrice,
+      maxPrice,
+      isPopular,
+      isTrending,
+      isFeatured,
       isNewArrival,
       sortBy,
-      sortOrder 
+      sortOrder
     } = req.query;
 
     if (!referenceWebsite) {
@@ -42,7 +42,7 @@ export const searchProducts = async (req, res) => {
     let priceFilter = {};
     if (minPrice) priceFilter.$gte = Number(minPrice);
     if (maxPrice) priceFilter.$lte = Number(maxPrice);
-    
+
     if (Object.keys(priceFilter).length > 0) {
       filter.actualPrice = priceFilter; // Dhyan dein: frontend actualPrice bhej raha hai ya price
     }
@@ -54,6 +54,30 @@ export const searchProducts = async (req, res) => {
         { description: { $regex: query, $options: "i" } },
       ];
     }
+
+ // 4. Smart Search Logic (Text + Price)
+if (query) {
+  const priceMatch = query.match(/(under|below|less than)\s*(\d+)/i);
+
+  if (priceMatch) {
+    const price = Number(priceMatch[2]);
+
+    // 🔥 IMPORTANT: remove text search
+    delete filter.$or;
+
+    // Apply price filter
+    filter.actualPrice = {
+      ...(filter.actualPrice || {}),
+      $lte: price
+    };
+  } else {
+    filter.$or = [
+      { productName: { $regex: query, $options: "i" } },
+      { description: { $regex: query, $options: "i" } },
+    ];
+  }
+}
+
 
     // 5. Sorting Logic
     const sort = {};
@@ -273,7 +297,7 @@ export const getProducts = async (req, res) => {
           from: "brands", // ⚠️ Check karein DB mein collection name 'brands' hi hai na
           localField: "brand",
           foreignField: "_id",
-          as: "brand", 
+          as: "brand",
         },
       },
       { $unwind: { path: "$brand", preserveNullAndEmptyArrays: true } }
@@ -494,15 +518,15 @@ export const getProductDetail = async (req, res) => {
       return res.status(404).json({ message: "Product not found" });
     }
 
-    res.status(200).json({ 
-      message: "Product retrieved successfully", 
-      product 
+    res.status(200).json({
+      message: "Product retrieved successfully",
+      product
     });
   } catch (error) {
     console.error("Error in getProductDetail:", error);
-    res.status(500).json({ 
-      message: "Failed to retrieve product", 
-      error: error.message 
+    res.status(500).json({
+      message: "Failed to retrieve product",
+      error: error.message
     });
   }
 };

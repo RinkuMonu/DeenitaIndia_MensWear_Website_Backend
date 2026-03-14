@@ -1,5 +1,7 @@
 import bcrypt from "bcryptjs";
 import dotenv from "dotenv";
+import axios from "axios";
+
 import User from "../models/User.model.js";
 import Order from "../models/Order.model.js";
 import Wishlist from "../models/Wishlist.model.js";
@@ -165,7 +167,7 @@ export const registerUser = async (req, res) => {
     console.error(error);
     res.status(500).json({ msg: "Registration failed", error: error.message });
   }
-  
+
 };
 
 export const logInUser = async (req, res) => {
@@ -223,6 +225,130 @@ export const logInUser = async (req, res) => {
     res.status(500).json({ msg: "Login failed", error: error.message });
   }
 };
+
+
+
+export const sendOtpLogin = async (req, res) => {
+  try {
+    const { mobile, referenceWebsite } = req.body;
+
+    if (!mobile || !referenceWebsite) {
+      return res.status(400).json({
+        success: false,
+        message: "Mobile and referenceWebsite are required",
+      });
+    }
+
+    let user = await User.findOne({ mobile, referenceWebsite });
+
+    // ✅ agar user nahi mila → auto create
+    if (!user) {
+      user = await User.create({
+        mobile,
+        referenceWebsite,
+        firstName: "User",
+        lastName: mobile.slice(-4),
+        email: `${mobile}@otpuser.com`,
+        role: "user",
+        mobileVerified: false,
+
+        // 🔥 IMPORTANT LINE (password validation bypass)
+        googleId: `otp_${mobile}`,
+      });
+    }
+
+
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    user.otp = otp;
+    user.otpExpiresAt = new Date(Date.now() + 5 * 60 * 1000);
+    await user.save();
+
+    // 🔹 SMS
+    const payload = {
+      template_id: process.env.MSG91_TEMPLATE_ID,
+      recipients: [
+        {
+          mobiles: "91" + mobile,
+          OTP: otp,
+        },
+      ],
+    };
+
+    await axios.post("https://control.msg91.com/api/v5/flow", payload, {
+      headers: {
+        authkey: process.env.MSG91_AUTH_KEY,
+        "Content-Type": "application/json",
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: "OTP sent successfully",
+      isNewUser: !user.mobileVerified,
+      userId: user._id,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Failed to send OTP",
+      error: error.message,
+    });
+  }
+};
+
+
+export const verifyOtpAndLogin = async (req, res) => {
+  try {
+    const { mobile, otp, referenceWebsite } = req.body;
+
+    if (!mobile || !otp || !referenceWebsite) {
+      return res.status(400).json({
+        message: "Mobile, OTP and referenceWebsite are required",
+      });
+    }
+
+    const user = await User.findOne({ mobile, referenceWebsite });
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!user.otp || user.otp !== otp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+
+    if (user.otpExpiresAt < new Date()) {
+      return res.status(400).json({ message: "OTP expired" });
+    }
+
+    // ✅ OTP verified
+    user.otp = null;
+    user.otpExpiresAt = null;
+    user.mobileVerified = true;
+    await user.save();
+
+    const accessToken = user.createAccessToken();
+    const refreshToken = user.createRefreshToken();
+
+    user.password = undefined;
+
+    res.status(200).json({
+      success: true,
+      message: "Login successful via OTP",
+      isNewUser: !user.firstName || user.firstName === "User",
+      userData: user,
+      accessToken,
+      refreshToken,
+    });
+  } catch (error) {
+    res.status(500).json({
+      message: "OTP login failed",
+      error: error.message,
+    });
+  }
+};
+
 
 export const adminLogin = async (req, res) => {
   console.log("hiithfhfhdf");
@@ -517,12 +643,12 @@ export const logoutUser = (req, res) => {
 
 export const getAllUsers = async (req, res) => {
   try {
-    const { 
-      page = 1, 
-      limit = 10, 
-      role, 
-      segmentation, 
-      search, 
+    const {
+      page = 1,
+      limit = 10,
+      role,
+      segmentation,
+      search,
       sortBy = "createdAt",   // default sort field
       sortOrder = "desc"      // "asc" or "desc"
     } = req.query;
@@ -579,9 +705,9 @@ export const getAllUsers = async (req, res) => {
           segment: {
             $switch: {
               branches: [
-                { case: { $gte: [ "$orderCount", 10 ] }, then: "loyal" },
-                { case: { $gte: [ "$totalSpent", 5000 ] }, then: "high-value" },
-                { case: { $gte: [ "$createdAt", tenDaysAgo ] }, then: "new" }
+                { case: { $gte: ["$orderCount", 10] }, then: "loyal" },
+                { case: { $gte: ["$totalSpent", 5000] }, then: "high-value" },
+                { case: { $gte: ["$createdAt", tenDaysAgo] }, then: "new" }
               ],
               default: "regular"
             }
@@ -621,7 +747,6 @@ export const getAllUsers = async (req, res) => {
     });
   }
 };
-
 
 
 export const requestPasswordReset = async (req, res) => {
