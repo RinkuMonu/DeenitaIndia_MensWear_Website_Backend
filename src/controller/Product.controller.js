@@ -111,7 +111,6 @@ if (query) {
 
 export const createProduct = async (req, res) => {
   try {
-    console.log("Incoming request body:", req.body);
 
     const {
       referenceWebsite,

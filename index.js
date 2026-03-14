@@ -60,6 +60,7 @@ app.use(
       "http://localhost:5173",
       "http://localhost:5175",
       "http://localhost:4002",
+      "http://localhost:4003",
       "https://yourfrontenddomain.com",
       "https://jajamblockprints.com",
       "https://www.jajamblockprints.com",
