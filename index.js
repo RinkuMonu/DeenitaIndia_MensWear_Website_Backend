@@ -68,6 +68,7 @@ app.use(
       "https://www.spiral.fashion",
       "https://qubitnexts.com/",
       "https://khushalkingdom.com",
+      "https://rajshalafashion.com",
       "https://rajshalafashion.com"
     ], // allow specific frontend domains
 
