@@ -15,7 +15,7 @@ export const createBrand = async (req, res) => {
 // 2. Updated Get All Brands with Pagination & Search
 export const getAllBrands = async (req, res) => {
   try {
-    const { referenceWebsite, search, page = 1, limit = 10 } = req.query;
+    const { referenceWebsite, search, page = 1, limit = 200 } = req.query;
     let query = {};
     if (referenceWebsite) query.referenceWebsite = referenceWebsite;
     if (search) query.name = { $regex: search, $options: "i" };
