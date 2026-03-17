@@ -14,12 +14,17 @@ if (!fs.existsSync(uploadsDir)) {
 
 // Storage configuration for Multer
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        cb(null, uploadsDir); // Save uploaded files to 'uploads' directory
+    destination: function (req, file, cb) {
+        cb(null, './src/uploads'); // Aapka path
     },
-    filename: (req, file, cb) => {
-        // Ensure unique filename by prepending current timestamp to the original filename
-        cb(null, Date.now() + path.extname(file.originalname));
+    filename: function (req, file, cb) {
+        // Sirf Date.now() mat use karein, saath mein random number bhi dalein
+        const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+        
+        // File ka extension nikalne ke liye
+        const ext = path.extname(file.originalname); 
+        
+        cb(null, file.fieldname + '-' + uniqueSuffix + ext);
     }
 });
 
