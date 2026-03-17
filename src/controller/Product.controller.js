@@ -110,6 +110,8 @@ if (query) {
 };
 
 export const createProduct = async (req, res) => {
+  console.log("Create Product Request Body:", req.body);
+    console.log("Create Product files:", req.files);
   try {
 
     const {
@@ -131,10 +133,10 @@ export const createProduct = async (req, res) => {
       isNewArrival,
       tags
     } = req.body;
-
+    
     const imageArray =
       req.files?.map((file) => `/uploads/${file.filename}`) || [];
-
+    
     // 1. Size Handling (Nested colors will be inside this)
     let parsedSizes;
     if (typeof size === "string") {
@@ -189,7 +191,7 @@ export const createProduct = async (req, res) => {
       tags: tags ? (typeof tags === "string" ? JSON.parse(tags) : tags) : []
     });
 
-    await product.save();
+    await product.save();   
     res.status(200).json({ message: "Product added successfully", product });
   } catch (error) {
     console.error("Error in createProduct:", error);
