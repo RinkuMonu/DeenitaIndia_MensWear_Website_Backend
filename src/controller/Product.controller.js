@@ -243,10 +243,7 @@ export const getProducts = async (req, res) => {
       sortBy = "createdAt",
       sortOrder = "desc",
       page = 1,
-      limit = 10,
-      search,
-      material,
-      stock,
+      limit = 12, // Default limit match karein frontend se
       isPopular,
       isTrending,
       isFeatured,
@@ -257,121 +254,58 @@ export const getProducts = async (req, res) => {
       return res.status(400).json({ message: "Missing referenceWebsite" });
     }
 
-    // --- 1. INITIAL FILTERS (Match Stage) ---
     const matchQuery = {
       referenceWebsite: new mongoose.Types.ObjectId(referenceWebsite),
     };
 
-    // Price Filter
-    matchQuery.price = { $gte: parseFloat(minPrice), $lte: parseFloat(maxPrice) };
+    // Price filtering - Frontend field name 'actualPrice' hai toh yahan wahi use karein
+    matchQuery.actualPrice = { $gte: parseFloat(minPrice), $lte: parseFloat(maxPrice) };
 
-    // Search Filter
-    if (search) {
-      matchQuery.productName = { $regex: new RegExp(search, "i") };
-    }
-
-    // Brand ID Filter
-    if (brand && mongoose.Types.ObjectId.isValid(brand)) {
-      matchQuery.brand = new mongoose.Types.ObjectId(brand);
-    }
-
-    // Boolean Type Casting (FormData se string aati hai)
     if (isPopular === "true") matchQuery.isPopular = true;
     if (isTrending === "true") matchQuery.isTrending = true;
     if (isFeatured === "true") matchQuery.isFeatured = true;
     if (isNewArrival === "true") matchQuery.isNewArrival = true;
 
-    // Material & Stock
-    if (material) matchQuery.material = { $regex: new RegExp(material, "i") };
-    if (stock) {
-      matchQuery.stock = stock === "in" ? { $gte: 1 } : { $lte: 0 };
-    }
+    let pipeline = [{ $match: matchQuery }];
 
-    const pipeline = [{ $match: matchQuery }];
-
-    // --- 2. JOINS (Lookups) ---
-
-    // Brand Lookup - ID ko Object se replace karne ke liye
+    // Lookups (Same as your code)
     pipeline.push(
-      {
-        $lookup: {
-          from: "brands", // ⚠️ Check karein DB mein collection name 'brands' hi hai na
-          localField: "brand",
-          foreignField: "_id",
-          as: "brand",
-        },
-      },
-      { $unwind: { path: "$brand", preserveNullAndEmptyArrays: true } }
-    );
-
-    // Category Lookup
-    pipeline.push(
-      {
-        $lookup: {
-          from: "productcategories", // ⚠️ Check karein DB mein collection name 'productcategories' hai na
-          localField: "category",
-          foreignField: "_id",
-          as: "category",
-        },
-      },
+      { $lookup: { from: "brands", localField: "brand", foreignField: "_id", as: "brand" } },
+      { $unwind: { path: "$brand", preserveNullAndEmptyArrays: true } },
+      { $lookup: { from: "productcategories", localField: "category", foreignField: "_id", as: "category" } },
       { $unwind: { path: "$category", preserveNullAndEmptyArrays: true } }
     );
 
-    // Coupon Lookup (Optional)
-    pipeline.push(
-      {
-        $lookup: {
-          from: "coupons",
-          localField: "coupon",
-          foreignField: "_id",
-          as: "coupon",
-        },
-      },
-      { $unwind: { path: "$coupon", preserveNullAndEmptyArrays: true } }
-    );
-
-    // --- 3. CATEGORY NAME FILTER (Agar ID nahi, naam bheja ho) ---
-    if (category && !mongoose.Types.ObjectId.isValid(category)) {
+    // Category Name Filter (e.g. "Saree")
+    if (category && category !== "all") {
       pipeline.push({
         $match: { "category.name": { $regex: new RegExp(category, "i") } }
       });
     }
 
-    // --- 4. EXECUTION (Pagination & Sorting) ---
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    const [products, countResult] = await Promise.all([
-      Product.aggregate([
-        ...pipeline,
-        { $sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 } },
-        { $skip: skip },
-        { $limit: limitNum },
-      ]),
-      Product.aggregate([...pipeline, { $count: "total" }]),
+    const products = await Product.aggregate([
+      ...pipeline,
+      { $sort: { [sortBy]: sortOrder === "asc" ? 1 : -1 } },
+      { $skip: skip },
+      { $limit: limitNum },
     ]);
 
-    const totalDocuments = countResult[0]?.total || 0;
-    const totalPages = Math.ceil(totalDocuments / limitNum);
+    // Metadata for frontend
+    const totalCountArr = await Product.aggregate([...pipeline, { $count: "total" }]);
+    const total = totalCountArr[0]?.total || 0;
 
-    return res.status(200).json({
-      success: true,
-      message: "Products retrieved successfully",
+    res.status(200).json({
       products,
-      pagination: {
-        totalDocuments,
-        currentPage: parseInt(page),
-        pageSize: limitNum,
-        totalPages,
-      },
+      total,
+      currentPage: parseInt(page),
+      hasMore: (skip + products.length) < total
     });
+
   } catch (error) {
-    console.error("Error fetching products:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Failed to retrieve products",
-      error: error.message,
-    });
+    res.status(500).json({ message: error.message });
   }
 };
 
